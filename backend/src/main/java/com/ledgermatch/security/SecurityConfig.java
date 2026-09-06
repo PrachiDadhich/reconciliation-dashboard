@@ -2,6 +2,7 @@ package com.ledgermatch.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,6 +17,7 @@ import java.util.List;
 
 @Configuration @EnableWebSecurity
 public class SecurityConfig {
+    @Value("${app.frontend-url:http://localhost:5173}") private String frontendUrl;
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
     @Bean SecurityFilterChain filterChain(HttpSecurity http, JwtFilter jwt) throws Exception {
         return http.csrf(c -> c.disable()).cors(c -> {}).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -23,7 +25,7 @@ public class SecurityConfig {
                 .addFilterBefore(jwt, UsernamePasswordAuthenticationFilter.class).build();
     }
     @Bean CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration c = new CorsConfiguration(); c.setAllowedOrigins(List.of("http://localhost:5173")); c.setAllowedMethods(List.of("GET","POST","OPTIONS")); c.setAllowedHeaders(List.of("*"));
+        CorsConfiguration c = new CorsConfiguration(); c.setAllowedOrigins(List.of(frontendUrl, "http://localhost:5173")); c.setAllowedMethods(List.of("GET","POST","OPTIONS")); c.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource(); s.registerCorsConfiguration("/**", c); return s;
     }
 }
