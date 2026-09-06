@@ -25,7 +25,7 @@ public class SecurityConfig {
                 .addFilterBefore(jwt, UsernamePasswordAuthenticationFilter.class).build();
     }
     @Bean CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration c = new CorsConfiguration(); c.setAllowedOrigins(List.of(frontendUrl, "http://localhost:5173")); c.setAllowedMethods(List.of("GET","POST","OPTIONS")); c.setAllowedHeaders(List.of("*"));
+        CorsConfiguration c = new CorsConfiguration(); c.setAllowedOriginPatterns(List.of(frontendUrl, "http://localhost:*", "http://127.0.0.1:*")); c.setAllowedMethods(List.of("GET","POST","OPTIONS")); c.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource(); s.registerCorsConfiguration("/**", c); return s;
     }
 }
