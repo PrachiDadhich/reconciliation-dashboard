@@ -1,0 +1,27 @@
+package com.ledgermatch.reconciliation;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ledgermatch.security.CurrentUser;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import java.math.BigDecimal;
+import java.util.*;
+
+@RestController @RequestMapping("/reconciliation")
+public class ReconciliationController {
+    private final JdbcTemplate db; private final ObjectMapper json; private final ReconciliationEngine engine=new ReconciliationEngine();
+    public ReconciliationController(JdbcTemplate db,ObjectMapper json){this.db=db;this.json=json;}
+    @PostMapping("/runs") public Map<String,Object> run(){UUID user=CurrentUser.id(); UUID ordersBatch=latest(user,"orders"),paymentsBatch=latest(user,"payments"); if(ordersBatch==null||paymentsBatch==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Upload both datasets first");
+        var orders=db.query("select id,order_id,customer_email,currency,net_amount,status from orders where user_id=? and batch_id=?",(rs,n)->new ReconciliationEngine.Order(rs.getObject("id",UUID.class),rs.getString("order_id"),rs.getString("customer_email"),rs.getString("currency"),rs.getBigDecimal("net_amount"),rs.getString("status")),user,ordersBatch);
+        var payments=db.query("select id,transaction_ref,order_ref_norm,currency,amount,type,status from payments where user_id=? and batch_id=?",(rs,n)->new ReconciliationEngine.Payment(rs.getObject("id",UUID.class),rs.getString("transaction_ref"),rs.getString("order_ref_norm"),rs.getString("currency"),rs.getBigDecimal("amount"),rs.getString("type"),rs.getString("status")),user,paymentsBatch);
+        var result=engine.reconcile(orders,payments); UUID run=UUID.randomUUID(); Map<String,Object> summary=new LinkedHashMap<>(); summary.put("totalOrders",orders.size());summary.put("totalPayments",payments.size());summary.put("valueReconciled",result.reconciledValue());summary.put("valueInDispute",result.disputedValue());summary.put("moneyAtRisk",result.moneyAtRisk());summary.put("discrepancyCount",result.findings().size());
+        try { db.update("insert into reconciliation_runs(id,user_id,orders_batch_id,payments_batch_id,summary) values (?,?,?,?,?::jsonb)",run,user,ordersBatch,paymentsBatch,json.writeValueAsString(summary)); for(var f:result.findings()) db.update("insert into discrepancies(id,run_id,user_id,order_id,payment_id,type,severity,amount_at_risk,details) values (?,?,?,?,?,?,?,?,?::jsonb)",UUID.randomUUID(),run,user,f.orderId(),f.paymentId(),f.type(),f.severity(),f.amountAtRisk(),json.writeValueAsString(f.details())); } catch(JsonProcessingException e){throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,"Could not store reconciliation",e);}
+        return Map.of("runId",run,"summary",summary);
+    }
+    @GetMapping("/runs/{id}/summary") public Map<String,Object> summary(@PathVariable UUID id){UUID user=CurrentUser.id(); var rows=db.query("select summary from reconciliation_runs where id=? and user_id=?",(rs,n)->rs.getString("summary"),id,user); if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND); try {Map<String,Object> out=json.readValue(rows.getFirst(),Map.class); var counts=db.query("select type,severity,count(*) count from discrepancies where run_id=? and user_id=? group by type,severity order by count desc",(rs,n)->Map.of("type",rs.getString("type"),"severity",rs.getString("severity"),"count",rs.getLong("count")),id,user);out.put("breakdown",counts);return out;}catch(Exception e){throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,e.getMessage());}}
+    @GetMapping("/runs/{id}/discrepancies") public Map<String,Object> discrepancies(@PathVariable UUID id,@RequestParam(defaultValue="0")int page,@RequestParam(defaultValue="25")int size,@RequestParam(required=false)String type,@RequestParam(required=false)String severity,@RequestParam(required=false)String search){UUID user=CurrentUser.id();String sql="select d.id,d.type,d.severity,d.amount_at_risk,d.details,o.order_id,o.customer_email from discrepancies d left join orders o on o.id=d.order_id and o.user_id=d.user_id where d.run_id=? and d.user_id=?";List<Object> args=new ArrayList<>(List.of(id,user));if(type!=null){sql+=" and d.type=?";args.add(type);}if(severity!=null){sql+=" and d.severity=?";args.add(severity);}if(search!=null&&!search.isBlank()){sql+=" and (o.order_id ilike ? or o.customer_email ilike ?)";args.add("%"+search+"%");args.add("%"+search+"%");}sql+=" order by case d.severity when 'critical' then 1 when 'high' then 2 else 3 end,d.type limit ? offset ?";args.add(size);args.add(page*size);var data=db.query(sql,(rs,n)->Map.of("id",rs.getObject("id"),"type",rs.getString("type"),"severity",rs.getString("severity"),"amountAtRisk",rs.getBigDecimal("amount_at_risk"),"orderId",rs.getString("order_id"),"customerEmail",rs.getString("customer_email"),"details",rs.getString("details")),args.toArray());return Map.of("content",data,"page",page,"size",size);}
+    private UUID latest(UUID user,String kind){var rows=db.query("select id from dataset_batches where user_id=? and kind=? order by created_at desc limit 1",(rs,n)->rs.getObject("id",UUID.class),user,kind);return rows.isEmpty()?null:rows.getFirst();}
+}
