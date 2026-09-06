@@ -6,7 +6,7 @@ Ledger Match is a generic reconciliation dashboard for comparing a store's order
 
 Requirements: Java 21, Maven 3.9+, Node 20+, npm, and Docker Desktop.
 
-1. Copy `.env.example` to `.env` and set a long `JWT_SECRET`. `OPENAI_API_KEY` is optional; without it, the dashboard returns a clear explanation-unavailable state.
+1. Copy `.env.example` to `.env` and set a long `JWT_SECRET`. `OPENAI_API_KEY` is optional; without it, the dashboard returns useful deterministic, type-specific guidance. With it, the backend asks `gpt-4o-mini` for a structured explanation and falls back to that guidance if the provider is unavailable.
 2. Start PostgreSQL: `docker compose up -d postgres`.
 3. Start the API: `mvn -f backend/pom.xml spring-boot:run`.
 4. Start the web app: `cd frontend`, `npm install`, `npm run dev`.
@@ -60,7 +60,7 @@ These represent uncollected sales, money collected without a matching order, dup
 
 ## LLM layer
 
-The backend sends only computed discrepancy facts: type, severity, order id, relevant amounts, and statuses. It never sends raw CSV rows. The model is `gpt-4o-mini` at temperature `0.2`: the task is explanation over fixed facts, so a low temperature favors stable, concise output. The request asks for JSON containing `likely_cause`, `recommended_action`, and `confidence`; the server validates all three fields as text, retries once after malformed output or a transport failure, and returns a typed unavailable response if it still fails. Successful responses are cached by discrepancy id in PostgreSQL.
+The backend sends only computed discrepancy facts: type, severity, order id, relevant amounts, and statuses. It never sends raw CSV rows. The model is `gpt-4o-mini` at temperature `0.2`: the task is explanation over fixed facts, so a low temperature favors stable, concise output. The request asks for JSON containing `likely_cause`, `recommended_action`, and `confidence`; the server validates all three fields as non-empty text, retries once after malformed output or a transport failure, and returns useful deterministic guidance if it still fails. Successful responses are cached by discrepancy id in PostgreSQL, and each response identifies whether it came from the LLM or the fallback.
 
 ## Next steps
 
