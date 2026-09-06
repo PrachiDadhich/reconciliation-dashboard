@@ -9,10 +9,13 @@ import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(JwtFilter.class);
     private final JwtService jwt;
     public JwtFilter(JwtService jwt) { this.jwt = jwt; }
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
@@ -21,7 +24,7 @@ public class JwtFilter extends OncePerRequestFilter {
             try {
                 var auth = new UsernamePasswordAuthenticationToken(jwt.userId(header.substring(7)), null, AuthorityUtils.NO_AUTHORITIES);
                 SecurityContextHolder.getContext().setAuthentication(auth);
-            } catch (RuntimeException ignored) { }
+            } catch (RuntimeException exception) { log.warn("Rejected bearer token: {}", exception.getMessage()); }
         }
         chain.doFilter(request, response);
     }
